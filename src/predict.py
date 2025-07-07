@@ -134,19 +134,47 @@ class Predictor:
         # Enhance audio if requested and enhancer is available
         if enhance_audio and wave is not None and self.audio_enhancer is not None:
             try:
-                print(f"Enhancing audio: input shape={wave.shape}, sr={sr}")
+                print(f"Enhancing audio: input shape={wave.shape}, sr={sr}, type={type(wave)}")
+                
+                # Ensure wave is a PyTorch tensor
+                if isinstance(wave, np.ndarray):
+                    print("Converting numpy array to tensor for enhancement")
+                    wave = torch.from_numpy(wave)
+                    if use_cuda:
+                        wave = wave.cuda()
+                elif not isinstance(wave, torch.Tensor):
+                    print(f"Unexpected wave type: {type(wave)}, converting to tensor")
+                    wave = torch.tensor(wave)
+                    if use_cuda:
+                        wave = wave.cuda()
+                
+                # Ensure correct tensor shape (audio enhancer might expect specific dimensions)
+                if wave.dim() == 1:
+                    # Add batch dimension if needed
+                    wave = wave.unsqueeze(0)
+                
+                print(f"Input to enhancer: shape={wave.shape}, device={wave.device}, dtype={wave.dtype}")
+                
                 enhanced_wave, enhanced_sr = self.audio_enhancer(wave, sr)
                 wave = enhanced_wave
                 sr = enhanced_sr
                 print(f"Audio enhanced: output shape={wave.shape}, sr={sr}")
+                
             except Exception as e:
                 print(f"Audio enhancement failed: {e}, using original audio")
+                print(f"Wave type: {type(wave)}, shape: {wave.shape if hasattr(wave, 'shape') else 'no shape'}")
+                import traceback
+                traceback.print_exc()
                 # Continue with original audio if enhancement fails
         elif enhance_audio and self.audio_enhancer is None:
             print("Audio enhancement requested but enhancer not available")
         
         # Convert to numpy for return
         if wave is not None:
-            wave = wave.detach().cpu().numpy()
+            if isinstance(wave, torch.Tensor):
+                wave = wave.detach().cpu().numpy()
+            # Ensure proper shape for output
+            if wave.ndim > 1:
+                wave = wave.squeeze()
         
         return wave, sr
