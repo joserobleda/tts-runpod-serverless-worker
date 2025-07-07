@@ -1,8 +1,7 @@
 INPUT_SCHEMA = {
     "language": {
         "type": str,
-        "required": True,
-        "constraints": lambda language: language in ["en", "ru"]
+        "required": True
     },
     "voice": {
         "type": dict,
