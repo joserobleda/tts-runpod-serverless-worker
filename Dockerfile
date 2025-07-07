@@ -34,6 +34,11 @@ USER user
 ENV HOME=/home/user
 ENV SHELL=/bin/bash
 
+# Create necessary directories for PyTorch/Triton optimization
+RUN mkdir -p /home/user/.triton/autotune && \
+    mkdir -p /home/user/.cache/matplotlib && \
+    chown -R user:user /home/user/.triton /home/user/.cache
+
 # Install Python dependencies (Worker Template)
 COPY builder/requirements.txt ${WORKER_DIR}/requirements.txt
 RUN pip install --no-cache-dir -r ${WORKER_DIR}/requirements.txt && \
@@ -56,6 +61,12 @@ RUN git clone https://huggingface.co/ResembleAI/resemble-enhance ${WORKER_MODEL_
 # Add src files (Worker Template)
 ADD src ${WORKER_DIR}
 
-ENV RUNPOD_DEBUG_LEVEL=INFO
+# Make startup script executable
+RUN chmod +x ${WORKER_DIR}/startup.sh
 
-CMD python3 -u ${WORKER_DIR}/rp_handler.py --model-dir="${WORKER_MODEL_DIR}"
+# Set environment variables to reduce warnings
+ENV RUNPOD_DEBUG_LEVEL=INFO
+ENV MPLBACKEND=Agg
+ENV TRITON_CACHE_DIR=/home/user/.triton
+
+CMD ${WORKER_DIR}/startup.sh

@@ -1,10 +1,14 @@
 import os
+import numpy as np
 # torch
 import torch
 # xtts
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from audio_enhancer import AudioEnhancer
+
+# Constants
+SAMPLE_RATE = 24000
 
 use_cuda = os.environ.get('WORKER_USE_CUDA', 'True').lower() == 'true'
 
@@ -36,7 +40,7 @@ class Predictor:
     @torch.inference_mode()
     def predict(
             self,
-            text: str,
+            text: list,
             speaker_wav: dict,
             gpt_cond_len: int,
             max_ref_len: int,
@@ -44,12 +48,38 @@ class Predictor:
             speed: float,
             enhance_audio: bool
     ):
-        silence = np.zeros(int(0.10 * SAMPLE_RATE))
+        silence = torch.zeros(1, int(0.10 * SAMPLE_RATE))
+        if use_cuda:
+            silence = silence.cuda()
+        
         wave, sr = None, None
+        
+        # Process each text segment
         for line in text:
-            voice = speaker_wav[line[0]]
+            # Handle different input formats
+            if isinstance(line, (list, tuple)) and len(line) >= 2:
+                # Format: [speaker_id, text_content]
+                speaker_id, text_content = line[0], line[1]
+            elif isinstance(line, dict):
+                # Format: {"speaker": "id", "text": "content"}
+                speaker_id = line.get("speaker", list(speaker_wav.keys())[0])
+                text_content = line.get("text", "")
+            elif isinstance(line, str):
+                # Format: plain text string, use first available speaker
+                speaker_id = list(speaker_wav.keys())[0]
+                text_content = line
+            else:
+                continue
+            
+            # Get the voice file for this speaker
+            voice = speaker_wav.get(speaker_id)
+            if voice is None:
+                # Fallback to first available voice
+                voice = list(speaker_wav.values())[0]
+            
+            # Synthesize audio for this segment
             outputs = self.model.synthesize(
-                line[1],
+                text_content,
                 self.config,
                 speaker_wav=voice,
                 gpt_cond_len=gpt_cond_len,
@@ -58,17 +88,31 @@ class Predictor:
                 max_ref_len=max_ref_len,
                 speed=speed
             )
-            _wave, _sr = outputs['wav'], 24000
+            
+            _wave, _sr = outputs['wav'], SAMPLE_RATE
+            
+            # Concatenate audio segments
             if wave is None:
                 wave = _wave
                 sr = _sr
             else:
-                wave = torch.cat([wave, silence.copy(), _wave], dim=1)
-        if enhance_audio:
-            wave, sr = self.audio_enhancer(
-                torch.from_numpy(wave),
-                sr
-            )
+                wave = torch.cat([wave, silence.clone(), _wave], dim=1)
+        
+        # Enhance audio if requested
+        if enhance_audio and wave is not None:
+            try:
+                print(f"Enhancing audio: input shape={wave.shape}, sr={sr}")
+                # wave is already a torch tensor, so don't convert from numpy
+                enhanced_wave, enhanced_sr = self.audio_enhancer(wave, sr)
+                wave = enhanced_wave
+                sr = enhanced_sr
+                print(f"Audio enhanced: output shape={wave.shape}, sr={sr}")
+            except Exception as e:
+                print(f"Audio enhancement failed: {e}, using original audio")
+                # Continue with original audio if enhancement fails
+        
+        # Convert to numpy for return
+        if wave is not None:
             wave = wave.detach().cpu().numpy()
+        
         return wave, sr
-        # return outputs['wav']

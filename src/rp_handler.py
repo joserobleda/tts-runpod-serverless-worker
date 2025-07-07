@@ -1,6 +1,8 @@
 import io
 import os
 import argparse
+import base64
+import numpy as np
 # runpod utils
 import runpod
 from runpod.serverless.utils.rp_validator import validate
@@ -19,63 +21,92 @@ model_dir = os.getenv("WORKER_MODEL_DIR", "/model")
 
 def upload_audio(wav, sample_rate, key):
     """ Uploads audio to S3 bucket if it is available, otherwise returns base64 encoded audio. """
+    # Ensure wav is numpy array and in correct format
+    if hasattr(wav, 'cpu'):  # If it's a torch tensor
+        wav = wav.cpu().numpy()
+    
+    # Ensure correct shape and dtype
+    if wav.ndim > 1:
+        wav = wav.squeeze()  # Remove extra dimensions
+    wav = np.clip(wav, -1.0, 1.0)  # Clip to valid range
+    wav = (wav * 32767).astype(np.int16)  # Convert to 16-bit integers
+    
     # Convert wav to bytes
     wav_io = io.BytesIO()
     write(wav_io, sample_rate, wav)
+    wav_bytes = wav_io.getvalue()
 
     # Upload to S3
     if os.environ.get('BUCKET_ENDPOINT_URL', False):
         return upload_in_memory_object(
             key,
-            wav_io.read(),
+            wav_bytes,
             bucket_creds = {
                 "endpointUrl": os.environ.get('BUCKET_ENDPOINT_URL', None),
                 "accessId": os.environ.get('BUCKET_ACCESS_KEY_ID', None),
                 "accessSecret": os.environ.get('BUCKET_SECRET_ACCESS_KEY', None)
             }
         )
-    # Base64 encode
-    return wav_io.decode('UTF-8')
+    # Base64 encode for direct return
+    return base64.b64encode(wav_bytes).decode('utf-8')
 
 
 def run(job):
-    job_input = job['input']
+    try:
+        job_input = job['input']
+        print(f"Processing job {job['id']} with input: {job_input}")
 
-    # Input validation
-    validated_input = validate(job_input, INPUT_SCHEMA)
+        # Input validation
+        validated_input = validate(job_input, INPUT_SCHEMA)
 
-    if 'errors' in validated_input:
-        return {"error": validated_input['errors']}
-    validated_input = validated_input['validated_input']
+        if 'errors' in validated_input:
+            print(f"Validation errors: {validated_input['errors']}")
+            return {"error": validated_input['errors']}
+        validated_input = validated_input['validated_input']
 
-    # Download input objects
-    for k, v in validated_input["voice"].items():
-        validated_input["voice"][k] = rp_download.download_files_from_urls(
-            job['id'],
-            [v]
+        # Download input objects
+        print(f"Downloading voice files: {list(validated_input['voice'].keys())}")
+        for k, v in validated_input["voice"].items():
+            validated_input["voice"][k] = rp_download.download_files_from_urls(
+                job['id'],
+                [v]
+            )[0]  # Take the first downloaded file
+
+        print(f"Processing text segments: {len(validated_input['text'])}")
+        
+        # Inference text-to-audio
+        wave, sr = MODEL.predict(
+            language=validated_input["language"],
+            speaker_wav=validated_input["voice"],
+            text=validated_input["text"],
+            gpt_cond_len=validated_input.get("gpt_cond_len", 7),
+            max_ref_len=validated_input.get("max_ref_len", 10),
+            speed=validated_input.get("speed", 1.0),
+            enhance_audio=validated_input.get("enhance_audio", True)
         )
 
-    # Inference text-to-audio
-    wave, sr = MODEL.predict(
-        language=validated_input["language"],
-        speaker_wav=validated_input["voice"],
-        text=validated_input["text"],
-        gpt_cond_len=validated_input.get("gpt_cond_len", 7),
-        max_ref_len=validated_input.get("max_ref_len", 10),
-        speed=validated_input.get("speed", 1.0),
-        enhance_audio=validated_input.get("enhance_audio", True)
-    )
+        if wave is None:
+            return {"error": "Failed to generate audio"}
 
-    # Upload output object
-    audio_return = upload_audio(wave, sr, f"{job['id']}.wav")
-    job_output = {
-        "audio": audio_return
-    }
+        print(f"Generated audio: shape={wave.shape if hasattr(wave, 'shape') else len(wave)}, sr={sr}")
 
-    # Remove downloaded input objects
-    rp_cleanup.clean(['input_objects'])
+        # Upload output object
+        audio_return = upload_audio(wave, sr, f"{job['id']}.wav")
+        job_output = {
+            "audio": audio_return
+        }
 
-    return job_output
+        # Remove downloaded input objects
+        rp_cleanup.clean(['input_objects'])
+
+        print(f"Job {job['id']} completed successfully")
+        return job_output
+
+    except Exception as e:
+        print(f"Error processing job {job.get('id', 'unknown')}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Internal error: {str(e)}"}
 
 
 if __name__ == "__main__":

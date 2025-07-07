@@ -1,0 +1,16 @@
+{
+  "input": {
+    "language": "en",
+    "voice": {
+      "speaker1": "https://example.com/path/to/voice1.wav"
+    },
+    "text": [
+      ["speaker1", "Hello, this is the first segment of text."],
+      ["speaker1", "This is the second segment that will be synthesized."]
+    ],
+    "gpt_cond_len": 7,
+    "max_ref_len": 10,
+    "speed": 1.0,
+    "enhance_audio": true
+  }
+} 

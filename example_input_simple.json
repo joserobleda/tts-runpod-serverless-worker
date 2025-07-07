@@ -1,0 +1,17 @@
+{
+  "input": {
+    "language": "en",
+    "voice": {
+      "default": "https://example.com/path/to/voice.wav"
+    },
+    "text": [
+      "Hello, this is a simple text string.",
+      "Another simple text segment.",
+      {"speaker": "default", "text": "This is a dictionary format."}
+    ],
+    "gpt_cond_len": 7,
+    "max_ref_len": 10,
+    "speed": 1.0,
+    "enhance_audio": true
+  }
+} 
