@@ -17,25 +17,50 @@ class Predictor:
         self.model_dir = model_dir
 
     def setup(self):
-        # Load XTTSv2 model
-        self.config = XttsConfig()
-        self.config.load_json(
-            os.path.join(self.model_dir, "xttsv2", "config.json")
-        )
-        self.model = Xtts.init_from_config(self.config)
-        self.model.load_checkpoint(
-            self.config,
-            checkpoint_dir=os.path.join(self.model_dir, "xttsv2"),
-            use_deepspeed=True,
-            eval=True
-        )
-        if use_cuda:
-            self.model.cuda()
+        print("Loading XTTS model...")
+        try:
+            # Load XTTSv2 model
+            self.config = XttsConfig()
+            config_path = os.path.join(self.model_dir, "xttsv2", "config.json")
+            print(f"Loading config from: {config_path}")
+            self.config.load_json(config_path)
+            
+            self.model = Xtts.init_from_config(self.config)
+            checkpoint_dir = os.path.join(self.model_dir, "xttsv2")
+            print(f"Loading checkpoint from: {checkpoint_dir}")
+            
+            # Load without DeepSpeed for compatibility
+            self.model.load_checkpoint(
+                self.config,
+                checkpoint_dir=checkpoint_dir,
+                use_deepspeed=False,  # Disabled for compatibility
+                eval=True
+            )
+            
+            if use_cuda:
+                print("Moving model to CUDA...")
+                self.model.cuda()
+            
+            print("XTTS model loaded successfully!")
+            
+        except Exception as e:
+            print(f"Error loading XTTS model: {e}")
+            raise
+        
         # Load Audio Enhancer model
-        self.audio_enhancer = AudioEnhancer.from_pretrained(
-            os.path.join(self.model_dir, "audio_enhancer", "enhancer_stage2"),
-            "cuda" if use_cuda else "cpu"
-        )
+        try:
+            print("Loading audio enhancer...")
+            enhancer_path = os.path.join(self.model_dir, "audio_enhancer", "enhancer_stage2")
+            print(f"Loading enhancer from: {enhancer_path}")
+            self.audio_enhancer = AudioEnhancer.from_pretrained(
+                enhancer_path,
+                "cuda" if use_cuda else "cpu"
+            )
+            print("Audio enhancer loaded successfully!")
+        except Exception as e:
+            print(f"Error loading audio enhancer: {e}")
+            print("Continuing without audio enhancer...")
+            self.audio_enhancer = None
 
     @torch.inference_mode()
     def predict(
@@ -77,32 +102,39 @@ class Predictor:
                 # Fallback to first available voice
                 voice = list(speaker_wav.values())[0]
             
-            # Synthesize audio for this segment
-            outputs = self.model.synthesize(
-                text_content,
-                self.config,
-                speaker_wav=voice,
-                gpt_cond_len=gpt_cond_len,
-                language=language,
-                enable_text_splitting=True,
-                max_ref_len=max_ref_len,
-                speed=speed
-            )
+            print(f"Synthesizing: '{text_content}' with speaker: {speaker_id}")
             
-            _wave, _sr = outputs['wav'], SAMPLE_RATE
-            
-            # Concatenate audio segments
-            if wave is None:
-                wave = _wave
-                sr = _sr
-            else:
-                wave = torch.cat([wave, silence.clone(), _wave], dim=1)
+            try:
+                # Synthesize audio for this segment
+                outputs = self.model.synthesize(
+                    text_content,
+                    self.config,
+                    speaker_wav=voice,
+                    gpt_cond_len=gpt_cond_len,
+                    language=language,
+                    enable_text_splitting=True,
+                    max_ref_len=max_ref_len,
+                    speed=speed
+                )
+                
+                _wave, _sr = outputs['wav'], SAMPLE_RATE
+                print(f"Generated audio segment: shape={_wave.shape}, sr={_sr}")
+                
+                # Concatenate audio segments
+                if wave is None:
+                    wave = _wave
+                    sr = _sr
+                else:
+                    wave = torch.cat([wave, silence.clone(), _wave], dim=1)
+                    
+            except Exception as e:
+                print(f"Error synthesizing text '{text_content}': {e}")
+                raise
         
-        # Enhance audio if requested
-        if enhance_audio and wave is not None:
+        # Enhance audio if requested and enhancer is available
+        if enhance_audio and wave is not None and self.audio_enhancer is not None:
             try:
                 print(f"Enhancing audio: input shape={wave.shape}, sr={sr}")
-                # wave is already a torch tensor, so don't convert from numpy
                 enhanced_wave, enhanced_sr = self.audio_enhancer(wave, sr)
                 wave = enhanced_wave
                 sr = enhanced_sr
@@ -110,6 +142,8 @@ class Predictor:
             except Exception as e:
                 print(f"Audio enhancement failed: {e}, using original audio")
                 # Continue with original audio if enhancement fails
+        elif enhance_audio and self.audio_enhancer is None:
+            print("Audio enhancement requested but enhancer not available")
         
         # Convert to numpy for return
         if wave is not None:
