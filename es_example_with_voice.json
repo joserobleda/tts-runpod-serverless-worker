@@ -1,0 +1,14 @@
+{
+  "input": {
+    "language": "es",
+    "voice": {
+      "speaker_0": "https://drive.google.com/uc?export=download&id=1TI74SPLHjXNj64KmuZ7IqvoBIHZt2vgh"
+    },
+    "text": [
+      [
+        "speaker_0",
+        "México, principios del siglo XX. Una nación inmensa y rica en promesas, pero atrapada en la férrea mano de un solo hombre: Porfirio Díaz. Durante más de treinta años, el general gobernó con mano de hierro, prometiendo orden y progreso"
+      ]
+    ]
+  }
+}
