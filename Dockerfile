@@ -58,11 +58,16 @@ RUN git lfs install
 RUN git clone https://huggingface.co/coqui/XTTS-v2 ${WORKER_MODEL_DIR}/xttsv2
 RUN git clone https://huggingface.co/ResembleAI/resemble-enhance ${WORKER_MODEL_DIR}/audio_enhancer
 
-# Add src files (Worker Template)
-ADD src ${WORKER_DIR}
+# Switch back to root to add files and set permissions
+USER root
 
-# Make startup script executable
-RUN chmod +x ${WORKER_DIR}/startup.sh
+# Add src files and set proper permissions
+ADD src ${WORKER_DIR}
+RUN chown -R user:user ${WORKER_DIR} && \
+    chmod +x ${WORKER_DIR}/startup.sh
+
+# Switch back to user for runtime
+USER user
 
 # Set environment variables to reduce warnings
 ENV RUNPOD_DEBUG_LEVEL=INFO
