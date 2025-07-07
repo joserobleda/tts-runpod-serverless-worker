@@ -71,7 +71,17 @@ class Predictor:
             max_ref_len: int,
             language: str,
             speed: float,
-            enhance_audio: bool
+            enhance_audio: bool,
+            # Advanced quality parameters
+            temperature: float = 0.7,
+            length_penalty: float = 1.0,
+            repetition_penalty: float = 5.0,
+            top_k: int = 50,
+            top_p: float = 0.8,
+            num_gpt_outputs: int = 1,
+            gpt_cond_chunk_len: int = 4,
+            sound_norm_refs: bool = False,
+            enable_text_splitting: bool = True
     ):
         silence = torch.zeros(1, int(0.10 * SAMPLE_RATE))
         if use_cuda:
@@ -105,15 +115,23 @@ class Predictor:
             print(f"Synthesizing: '{text_content}' with speaker: {speaker_id}")
             
             try:
-                # Synthesize audio for this segment
+                # Synthesize audio for this segment with advanced quality parameters
                 outputs = self.model.synthesize(
                     text_content,
                     self.config,
                     speaker_wav=voice,
                     gpt_cond_len=gpt_cond_len,
+                    gpt_cond_chunk_len=gpt_cond_chunk_len,
                     language=language,
-                    enable_text_splitting=True,
                     max_ref_len=max_ref_len,
+                    sound_norm_refs=sound_norm_refs,
+                    enable_text_splitting=enable_text_splitting,
+                    # Advanced quality parameters
+                    temperature=temperature,
+                    length_penalty=length_penalty,
+                    repetition_penalty=repetition_penalty,
+                    top_k=top_k,
+                    top_p=top_p,
                     speed=speed
                 )
                 

@@ -74,15 +74,26 @@ def run(job):
 
         print(f"Processing text segments: {len(validated_input['text'])}")
         
-        # Inference text-to-audio with sensible defaults
+        # Inference text-to-audio with optimal quality settings
         wave, sr = MODEL.predict(
             language=validated_input["language"],
             speaker_wav=validated_input["voice"],
             text=validated_input["text"],
+            # Basic parameters
             gpt_cond_len=validated_input.get("gpt_cond_len", 30),  # Higher for better quality
             max_ref_len=validated_input.get("max_ref_len", 60),    # Higher for longer reference
             speed=validated_input.get("speed", 1.0),
-            enhance_audio=validated_input.get("enhance_audio", True)
+            enhance_audio=validated_input.get("enhance_audio", True),
+            # Advanced quality parameters for maximum quality
+            temperature=validated_input.get("temperature", 0.7),           # Balanced creativity/stability
+            length_penalty=validated_input.get("length_penalty", 1.0),     # No length bias
+            repetition_penalty=validated_input.get("repetition_penalty", 5.0),  # Prevent repetition
+            top_k=validated_input.get("top_k", 50),                        # Good diversity
+            top_p=validated_input.get("top_p", 0.8),                       # Nucleus sampling  
+            num_gpt_outputs=validated_input.get("num_gpt_outputs", 1),     # Single output
+            gpt_cond_chunk_len=validated_input.get("gpt_cond_chunk_len", 4), # Stable chunking
+            sound_norm_refs=validated_input.get("sound_norm_refs", False), # No normalization
+            enable_text_splitting=validated_input.get("enable_text_splitting", True)  # Better long text
         )
 
         if wave is None:
