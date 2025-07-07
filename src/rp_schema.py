@@ -13,11 +13,11 @@ INPUT_SCHEMA = {
     },
     "gpt_cond_len": {
         "type": int,
-        "required": True
+        "required": False
     },
     "max_ref_len": {
         "type": int,
-        "required": True
+        "required": False
     },
     "speed": {
         "type": float,
@@ -25,6 +25,6 @@ INPUT_SCHEMA = {
     },
     "enhance_audio": {
         "type": bool,
-        "required": True
+        "required": False
     }
 }

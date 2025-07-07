@@ -74,13 +74,13 @@ def run(job):
 
         print(f"Processing text segments: {len(validated_input['text'])}")
         
-        # Inference text-to-audio
+        # Inference text-to-audio with sensible defaults
         wave, sr = MODEL.predict(
             language=validated_input["language"],
             speaker_wav=validated_input["voice"],
             text=validated_input["text"],
-            gpt_cond_len=validated_input.get("gpt_cond_len", 7),
-            max_ref_len=validated_input.get("max_ref_len", 10),
+            gpt_cond_len=validated_input.get("gpt_cond_len", 30),  # Higher for better quality
+            max_ref_len=validated_input.get("max_ref_len", 60),    # Higher for longer reference
             speed=validated_input.get("speed", 1.0),
             enhance_audio=validated_input.get("enhance_audio", True)
         )
