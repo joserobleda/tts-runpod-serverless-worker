@@ -3,7 +3,11 @@
 
 runpod==1.4.2
 
+# PyTorch ecosystem - compatible versions
+torch==2.1.2
+torchaudio==2.1.2
+torchvision==0.16.2
 
 TTS==0.22.0
 scipy==1.11.4
-deepspeed==0.14.0
+deepspeed==0.15.4
