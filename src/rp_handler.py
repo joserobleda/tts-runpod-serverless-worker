@@ -44,7 +44,8 @@ def upload_audio(wav, sample_rate, key):
             bucket_creds = {
                 "endpointUrl": os.environ.get('BUCKET_ENDPOINT_URL', None),
                 "accessId": os.environ.get('BUCKET_ACCESS_KEY_ID', None),
-                "accessSecret": os.environ.get('BUCKET_SECRET_ACCESS_KEY', None)
+                "accessSecret": os.environ.get('BUCKET_SECRET_ACCESS_KEY', None),
+                "bucketName": os.environ.get('BUCKET_NAME', 'tts')
             }
         )
     # Base64 encode for direct return
