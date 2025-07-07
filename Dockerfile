@@ -40,6 +40,8 @@ RUN pip install ninja
 # Clean any preinstalled DeepSpeed
 RUN pip uninstall -y deepspeed || true
 
+RUN pip install numpy cpuinfo
+
 # Install DeepSpeed with custom ops
 RUN DS_BUILD_OPS=1 pip install deepspeed
 
