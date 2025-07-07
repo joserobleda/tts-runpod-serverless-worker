@@ -20,7 +20,7 @@ model_dir = os.getenv("WORKER_MODEL_DIR", "/model")
 
 
 def upload_audio(wav, sample_rate, key):
-    """ Uploads audio to S3 bucket if it is available, otherwise returns base64 encoded audio. """
+    """ Uploads audio to Cloudflare R2 bucket if it is available, otherwise returns base64 encoded audio. """
     # Ensure wav is numpy array and in correct format
     if hasattr(wav, 'cpu'):  # If it's a torch tensor
         wav = wav.cpu().numpy()
@@ -36,7 +36,7 @@ def upload_audio(wav, sample_rate, key):
     write(wav_io, sample_rate, wav)
     wav_bytes = wav_io.getvalue()
 
-    # Upload to S3
+    # Upload to Cloudflare R2 (S3-compatible)
     if os.environ.get('BUCKET_ENDPOINT_URL', False):
         return upload_in_memory_object(
             key,
@@ -104,7 +104,7 @@ def run(job):
         # Upload output object
         audio_return = upload_audio(wave, sr, f"{job['id']}.wav")
         job_output = {
-            "audio": audio_return
+            # "audio": audio_return
         }
 
         # Remove downloaded input objects
