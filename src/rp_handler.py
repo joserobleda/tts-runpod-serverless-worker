@@ -13,6 +13,9 @@ import predict
 from rp_schema import INPUT_SCHEMA
 # utils
 from scipy.io.wavfile import write
+# direct S3 upload
+import boto3
+from botocore.exceptions import ClientError
 
 
 # Model params
@@ -36,17 +39,56 @@ def upload_audio(wav, sample_rate, key):
     write(wav_io, sample_rate, wav)
     wav_bytes = wav_io.getvalue()
 
-    # Upload to Cloudflare R2 (S3-compatible)
+    # Upload to Cloudflare R2 (S3-compatible) - Direct upload to avoid date folders
     if os.environ.get('BUCKET_ENDPOINT_URL', False):
-        return upload_in_memory_object(
-            key,
-            wav_bytes,
-            bucket_creds = {
-                "endpointUrl": os.environ.get('BUCKET_ENDPOINT_URL', None),
-                "accessId": os.environ.get('BUCKET_ACCESS_KEY_ID', None),
-                "accessSecret": os.environ.get('BUCKET_SECRET_ACCESS_KEY', None)
-            }
-        )
+        try:
+            # Parse endpoint and bucket from URL
+            endpoint_url = os.environ.get('BUCKET_ENDPOINT_URL')
+            
+            # If the URL contains a bucket name, extract it
+            if '/' in endpoint_url.split('://', 1)[1]:
+                # URL format: https://account-id.r2.cloudflarestorage.com/bucket-name
+                base_url, bucket_name = endpoint_url.rsplit('/', 1)
+                actual_endpoint = base_url
+            else:
+                # URL format: https://account-id.r2.cloudflarestorage.com
+                actual_endpoint = endpoint_url
+                bucket_name = os.environ.get('BUCKET_NAME', 'tts')
+            
+            # Create S3 client for direct upload
+            s3_client = boto3.client(
+                's3',
+                endpoint_url=actual_endpoint,
+                aws_access_key_id=os.environ.get('BUCKET_ACCESS_KEY_ID'),
+                aws_secret_access_key=os.environ.get('BUCKET_SECRET_ACCESS_KEY'),
+                region_name='auto'  # Cloudflare R2 uses 'auto' as region
+            )
+            
+            # Upload directly to root of bucket (no date folders)
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=key,  # File will go directly to root with this key
+                Body=wav_bytes,
+                ContentType='audio/wav'
+            )
+            
+            # Return the public URL
+            return f"{actual_endpoint}/{bucket_name}/{key}"
+            
+        except Exception as e:
+            print(f"Direct S3 upload failed: {e}")
+            print("Falling back to RunPod upload function...")
+            # Fallback to original RunPod function
+            return upload_in_memory_object(
+                key,
+                wav_bytes,
+                bucket_creds = {
+                    "endpointUrl": os.environ.get('BUCKET_ENDPOINT_URL', None),
+                    "accessId": os.environ.get('BUCKET_ACCESS_KEY_ID', None),
+                    "accessSecret": os.environ.get('BUCKET_SECRET_ACCESS_KEY', None)
+                }
+            )
+    
     # Base64 encode for direct return
     return base64.b64encode(wav_bytes).decode('utf-8')
 
