@@ -8,6 +8,9 @@ torch==2.1.2
 torchaudio==2.1.2
 torchvision==0.16.2
 
+# TTS and compatible transformers version
 TTS==0.22.0
+transformers==4.40.2
+tokenizers==0.19.1
 scipy==1.11.4
 deepspeed==0.15.4
