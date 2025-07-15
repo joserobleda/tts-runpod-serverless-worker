@@ -127,11 +127,11 @@ def run(job):
             speed=validated_input.get("speed", 1.0),
             enhance_audio=validated_input.get("enhance_audio", True),
             # Advanced quality parameters for maximum quality
-            temperature=validated_input.get("temperature", 0.3),           # Balanced creativity/stability
+            temperature=validated_input.get("temperature", 0.7),           # Balanced creativity/stability
             length_penalty=validated_input.get("length_penalty", 1.0),     # No length bias
             repetition_penalty=validated_input.get("repetition_penalty", 5.0),  # Prevent repetition
-            top_k=validated_input.get("top_k", 40),                        # Good diversity
-            top_p=validated_input.get("top_p", 0.7),                       # Nucleus sampling  
+            top_k=validated_input.get("top_k", 50),                        # Good diversity
+            top_p=validated_input.get("top_p", 0.8),                       # Nucleus sampling  
             num_gpt_outputs=validated_input.get("num_gpt_outputs", 1),     # Single output
             gpt_cond_chunk_len=validated_input.get("gpt_cond_chunk_len", 4), # Stable chunking
             sound_norm_refs=validated_input.get("sound_norm_refs", False), # No normalization
