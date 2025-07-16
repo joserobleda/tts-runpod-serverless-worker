@@ -149,12 +149,11 @@ class Predictor:
                 
                 print(f"Generated audio segment: shape={_wave.shape}, sr={_sr}")
                 
-                # Concatenate audio segments
-                if wave is None:
-                    wave = _wave
-                    sr = _sr
-                else:
-                    wave = torch.cat([wave, silence.clone(), _wave], dim=0)
+                # Ensure all tensors are 1D before concatenation
+                wave = wave.squeeze()
+                silence_to_add = silence.clone().squeeze()
+                _wave = _wave.squeeze()
+                wave = torch.cat([wave, silence_to_add, _wave], dim=0)
                     
             except Exception as e:
                 print(f"Error synthesizing text '{text_content}': {e}")
