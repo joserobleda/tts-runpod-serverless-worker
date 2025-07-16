@@ -136,6 +136,17 @@ class Predictor:
                 )
                 
                 _wave, _sr = outputs['wav'], SAMPLE_RATE
+                
+                # Ensure _wave is a torch.Tensor
+                if isinstance(_wave, np.ndarray):
+                    _wave = torch.from_numpy(_wave)
+                    if use_cuda:
+                        _wave = _wave.cuda()
+                elif not isinstance(_wave, torch.Tensor):
+                    _wave = torch.tensor(_wave)
+                    if use_cuda:
+                        _wave = _wave.cuda()
+                
                 print(f"Generated audio segment: shape={_wave.shape}, sr={_sr}")
                 
                 # Concatenate audio segments
