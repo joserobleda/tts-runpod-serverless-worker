@@ -154,7 +154,7 @@ class Predictor:
                     wave = _wave
                     sr = _sr
                 else:
-                    wave = torch.cat([wave, silence.clone(), _wave], dim=1)
+                    wave = torch.cat([wave, silence.clone(), _wave], dim=0)
                     
             except Exception as e:
                 print(f"Error synthesizing text '{text_content}': {e}")
