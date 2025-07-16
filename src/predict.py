@@ -83,7 +83,7 @@ class Predictor:
             sound_norm_refs: bool = False,
             enable_text_splitting: bool = True
     ):
-        silence = torch.zeros(1, int(0.10 * SAMPLE_RATE))
+        silence = torch.zeros(1, int(1.0 * SAMPLE_RATE))
         if use_cuda:
             silence = silence.cuda()
         
