@@ -84,13 +84,16 @@ class Predictor:
             enable_text_splitting: bool = True
     ):
         silence = torch.zeros(1, int(1.0 * SAMPLE_RATE))
+        # Create 0.5 second silence for newline pauses
+        newline_silence = torch.zeros(1, int(0.5 * SAMPLE_RATE))
         if use_cuda:
             silence = silence.cuda()
+            newline_silence = newline_silence.cuda()
         
         wave, sr = None, None
         
         # Process each text segment
-        for line in text:
+        for line_idx, line in enumerate(text):
             # Handle different input formats
             if isinstance(line, (list, tuple)) and len(line) >= 2:
                 # Format: [speaker_id, text_content]
@@ -112,56 +115,84 @@ class Predictor:
                 # Fallback to first available voice
                 voice = list(speaker_wav.values())[0]
             
-            print(f"Synthesizing: '{text_content}' with speaker: {speaker_id}")
+            # Split text content by newlines to create 0.5 sec pauses
+            text_segments = text_content.split('\n')
             
-            try:
-                # Synthesize audio for this segment with advanced quality parameters
-                outputs = self.model.synthesize(
-                    text_content,
-                    self.config,
-                    speaker_wav=voice,
-                    gpt_cond_len=gpt_cond_len,
-                    gpt_cond_chunk_len=gpt_cond_chunk_len,
-                    language=language,
-                    max_ref_len=max_ref_len,
-                    sound_norm_refs=sound_norm_refs,
-                    enable_text_splitting=enable_text_splitting,
-                    # Advanced quality parameters
-                    temperature=temperature,
-                    length_penalty=length_penalty,
-                    repetition_penalty=repetition_penalty,
-                    top_k=top_k,
-                    top_p=top_p,
-                    speed=speed
-                )
+            for segment_idx, text_segment in enumerate(text_segments):
+                # Skip empty segments
+                if not text_segment.strip():
+                    # If it's an empty segment but not the last one, add newline pause
+                    if segment_idx < len(text_segments) - 1:
+                        if wave is None:
+                            wave = newline_silence.clone()
+                            sr = SAMPLE_RATE
+                        else:
+                            wave = wave.squeeze()
+                            newline_pause = newline_silence.clone().squeeze()
+                            wave = torch.cat([wave, newline_pause], dim=0)
+                    continue
                 
-                _wave, _sr = outputs['wav'], SAMPLE_RATE
+                print(f"Synthesizing: '{text_segment}' with speaker: {speaker_id}")
                 
-                # Ensure _wave is a torch.Tensor
-                if isinstance(_wave, np.ndarray):
-                    _wave = torch.from_numpy(_wave)
-                    if use_cuda:
-                        _wave = _wave.cuda()
-                elif not isinstance(_wave, torch.Tensor):
-                    _wave = torch.tensor(_wave)
-                    if use_cuda:
-                        _wave = _wave.cuda()
-                
-                print(f"Generated audio segment: shape={_wave.shape}, sr={_sr}")
-                
-                # Concatenate audio segments
-                if wave is None:
-                    wave = _wave
-                    sr = _sr
-                else:
-                    wave = wave.squeeze()
-                    silence_to_add = silence.clone().squeeze()
-                    _wave = _wave.squeeze()
-                    wave = torch.cat([wave, silence_to_add, _wave], dim=0)
+                try:
+                    # Synthesize audio for this segment with advanced quality parameters
+                    outputs = self.model.synthesize(
+                        text_segment,
+                        self.config,
+                        speaker_wav=voice,
+                        gpt_cond_len=gpt_cond_len,
+                        gpt_cond_chunk_len=gpt_cond_chunk_len,
+                        language=language,
+                        max_ref_len=max_ref_len,
+                        sound_norm_refs=sound_norm_refs,
+                        enable_text_splitting=enable_text_splitting,
+                        # Advanced quality parameters
+                        temperature=temperature,
+                        length_penalty=length_penalty,
+                        repetition_penalty=repetition_penalty,
+                        top_k=top_k,
+                        top_p=top_p,
+                        speed=speed
+                    )
                     
-            except Exception as e:
-                print(f"Error synthesizing text '{text_content}': {e}")
-                raise
+                    _wave, _sr = outputs['wav'], SAMPLE_RATE
+                    
+                    # Ensure _wave is a torch.Tensor
+                    if isinstance(_wave, np.ndarray):
+                        _wave = torch.from_numpy(_wave)
+                        if use_cuda:
+                            _wave = _wave.cuda()
+                    elif not isinstance(_wave, torch.Tensor):
+                        _wave = torch.tensor(_wave)
+                        if use_cuda:
+                            _wave = _wave.cuda()
+                    
+                    print(f"Generated audio segment: shape={_wave.shape}, sr={_sr}")
+                    
+                    # Concatenate audio segments
+                    if wave is None:
+                        wave = _wave
+                        sr = _sr
+                    else:
+                        wave = wave.squeeze()
+                        _wave = _wave.squeeze()
+                        wave = torch.cat([wave, _wave], dim=0)
+                    
+                    # Add 0.5 sec pause after each text segment (except the last one)
+                    if segment_idx < len(text_segments) - 1:
+                        wave = wave.squeeze()
+                        newline_pause = newline_silence.clone().squeeze()
+                        wave = torch.cat([wave, newline_pause], dim=0)
+                        
+                except Exception as e:
+                    print(f"Error synthesizing text '{text_segment}': {e}")
+                    raise
+            
+            # Add 1 sec silence between different lines in the text list (if there are more lines to process)
+            if line_idx < len(text) - 1:
+                wave = wave.squeeze()
+                silence_to_add = silence.clone().squeeze()
+                wave = torch.cat([wave, silence_to_add], dim=0)
         
         # Enhance audio if requested and enhancer is available
         if enhance_audio and wave is not None and self.audio_enhancer is not None:
