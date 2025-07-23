@@ -86,12 +86,9 @@ class Predictor:
         silence = torch.zeros(1, int(0.9 * SAMPLE_RATE))
         # Create 0.4 second silence for newline pauses
         newline_silence = torch.zeros(1, int(0.4 * SAMPLE_RATE))
-        # Create 0.1 second silence for comma pauses
-        comma_silence = torch.zeros(1, int(0.1 * SAMPLE_RATE))
         if use_cuda:
             silence = silence.cuda()
             newline_silence = newline_silence.cuda()
-            comma_silence = comma_silence.cuda()
         
         wave, sr = None, None
         
@@ -119,50 +116,33 @@ class Predictor:
                 voice = list(speaker_wav.values())[0]
             
             # Split text content by newlines to create 0.4 sec pauses
-            newline_segments = text_content.split('\n')
+            text_segments = text_content.split('\n')
             
-            # Process each newline segment for comma pauses
-            all_segments = []
-            segment_types = []  # Track if segment ends with comma or newline
-            
-            for nl_idx, nl_segment in enumerate(newline_segments):
-                nl_segment = nl_segment.strip()
-                if not nl_segment:
-                    continue
-                    
-                # Split each newline segment by commas to create 0.1 sec pauses
-                comma_segments = nl_segment.split(',')
-                
-                # Filter out empty comma segments first, then determine pause types
-                non_empty_segments = []
-                for comma_segment in comma_segments:
-                    comma_segment = comma_segment.strip()
-                    if comma_segment:
-                        non_empty_segments.append(comma_segment)
-                
-                # Process non-empty segments and determine correct pause types
-                for comma_idx, comma_segment in enumerate(non_empty_segments):
+            # Clean and improve text segments for better TTS synthesis
+            cleaned_segments = []
+            for segment in text_segments:
+                segment = segment.strip()
+                if segment:
                     # Add punctuation if missing to help XTTS with sentence boundaries
-                    # Using spaces around semicolon for maximum word boundary clarity
-                    if not comma_segment.endswith(('.', '!', '?', ',', ';', ':')):
-                        comma_segment += ' ; '
-                    
-                    all_segments.append(comma_segment)
-                    
-                    # Determine pause type based on position in non-empty segments
-                    is_last_comma_in_nl = (comma_idx == len(non_empty_segments) - 1)
-                    is_last_nl = (nl_idx == len(newline_segments) - 1)
-                    
-                    if is_last_comma_in_nl and is_last_nl:
-                        segment_types.append('none')  # No pause after last segment
-                    elif is_last_comma_in_nl:
-                        segment_types.append('newline')  # 0.4s pause after newline
-                    else:
-                        segment_types.append('comma')  # 0.1s pause after comma
+                    # Using semicolon + space for natural punctuation spacing
+                    if not segment.endswith(('.', '!', '?', ',', ';', ':')):
+                        segment += ' ; '
+                    cleaned_segments.append(segment)
             
-            for segment_idx, text_segment in enumerate(all_segments):
+            text_segments = cleaned_segments
+            
+            for segment_idx, text_segment in enumerate(text_segments):
                 # Skip empty segments
                 if not text_segment.strip():
+                    # If it's an empty segment but not the last one, add newline pause
+                    if segment_idx < len(text_segments) - 1:
+                        if wave is None:
+                            wave = newline_silence.clone()
+                            sr = SAMPLE_RATE
+                        else:
+                            wave = wave.squeeze()
+                            newline_pause = newline_silence.clone().squeeze()
+                            wave = torch.cat([wave, newline_pause], dim=0)
                     continue
                 
                 print(f"Synthesizing: '{text_segment}' with speaker: {speaker_id}")
@@ -211,19 +191,11 @@ class Predictor:
                         _wave = _wave.squeeze()
                         wave = torch.cat([wave, _wave], dim=0)
                     
-                    # Add appropriate pause based on segment type
-                    pause_type = segment_types[segment_idx]
-                    if pause_type == 'comma':
-                        # Add 0.2 sec pause after comma
-                        wave = wave.squeeze()
-                        comma_pause = comma_silence.clone().squeeze()
-                        wave = torch.cat([wave, comma_pause], dim=0)
-                    elif pause_type == 'newline':
-                        # Add 0.4 sec pause after newline
+                    # Add 0.4 sec pause after each text segment (except the last one)
+                    if segment_idx < len(text_segments) - 1:
                         wave = wave.squeeze()
                         newline_pause = newline_silence.clone().squeeze()
                         wave = torch.cat([wave, newline_pause], dim=0)
-                    # 'none' type gets no pause (last segment)
                         
                 except Exception as e:
                     print(f"Error synthesizing text '{text_segment}': {e}")
