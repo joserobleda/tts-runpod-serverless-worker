@@ -125,7 +125,7 @@ class Predictor:
                 if segment:
                     # Add punctuation if missing to help XTTS with sentence boundaries
                     if not segment.endswith(('.', '!', '?', ',', ';', ':')):
-                        segment += ';'
+                        segment += ' ;'
                     cleaned_segments.append(segment)
             
             text_segments = cleaned_segments
