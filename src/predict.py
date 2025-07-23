@@ -83,9 +83,9 @@ class Predictor:
             sound_norm_refs: bool = False,
             enable_text_splitting: bool = True
     ):
-        silence = torch.zeros(1, int(1.0 * SAMPLE_RATE))
-        # Create 0.2 second silence for newline pauses
-        newline_silence = torch.zeros(1, int(0.2 * SAMPLE_RATE))
+        silence = torch.zeros(1, int(0.9 * SAMPLE_RATE))
+        # Create 0.4 second silence for newline pauses
+        newline_silence = torch.zeros(1, int(0.4 * SAMPLE_RATE))
         if use_cuda:
             silence = silence.cuda()
             newline_silence = newline_silence.cuda()
@@ -115,7 +115,7 @@ class Predictor:
                 # Fallback to first available voice
                 voice = list(speaker_wav.values())[0]
             
-            # Split text content by newlines to create 0.2 sec pauses
+            # Split text content by newlines to create 0.4 sec pauses
             text_segments = text_content.split('\n')
             
             # Clean and improve text segments for better TTS synthesis
@@ -190,7 +190,7 @@ class Predictor:
                         _wave = _wave.squeeze()
                         wave = torch.cat([wave, _wave], dim=0)
                     
-                    # Add 0.2 sec pause after each text segment (except the last one)
+                    # Add 0.4 sec pause after each text segment (except the last one)
                     if segment_idx < len(text_segments) - 1:
                         wave = wave.squeeze()
                         newline_pause = newline_silence.clone().squeeze()
@@ -200,7 +200,7 @@ class Predictor:
                     print(f"Error synthesizing text '{text_segment}': {e}")
                     raise
             
-            # Add 1 sec silence between different lines in the text list (if there are more lines to process)
+            # Add 0.9 sec silence between different lines in the text list (if there are more lines to process)
             if line_idx < len(text) - 1:
                 wave = wave.squeeze()
                 silence_to_add = silence.clone().squeeze()
