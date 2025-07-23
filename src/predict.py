@@ -86,8 +86,8 @@ class Predictor:
         silence = torch.zeros(1, int(0.9 * SAMPLE_RATE))
         # Create 0.4 second silence for newline pauses
         newline_silence = torch.zeros(1, int(0.4 * SAMPLE_RATE))
-        # Create 0.2 second silence for comma pauses
-        comma_silence = torch.zeros(1, int(0.2 * SAMPLE_RATE))
+        # Create 0.1 second silence for comma pauses
+        comma_silence = torch.zeros(1, int(0.1 * SAMPLE_RATE))
         if use_cuda:
             silence = silence.cuda()
             newline_silence = newline_silence.cuda()
@@ -130,7 +130,7 @@ class Predictor:
                 if not nl_segment:
                     continue
                     
-                # Split each newline segment by commas to create 0.2 sec pauses
+                # Split each newline segment by commas to create 0.1 sec pauses
                 comma_segments = nl_segment.split(',')
                 
                 # Filter out empty comma segments first, then determine pause types
@@ -158,7 +158,7 @@ class Predictor:
                     elif is_last_comma_in_nl:
                         segment_types.append('newline')  # 0.4s pause after newline
                     else:
-                        segment_types.append('comma')  # 0.2s pause after comma
+                        segment_types.append('comma')  # 0.1s pause after comma
             
             for segment_idx, text_segment in enumerate(all_segments):
                 # Skip empty segments
