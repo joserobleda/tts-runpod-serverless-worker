@@ -118,6 +118,18 @@ class Predictor:
             # Split text content by newlines to create 0.5 sec pauses
             text_segments = text_content.split('\n')
             
+            # Clean and improve text segments for better TTS synthesis
+            cleaned_segments = []
+            for segment in text_segments:
+                segment = segment.strip()
+                if segment:
+                    # Add punctuation if missing to help XTTS with sentence boundaries
+                    if not segment.endswith(('.', '!', '?', ',', ';', ':')):
+                        segment += '.'
+                    cleaned_segments.append(segment)
+            
+            text_segments = cleaned_segments
+            
             for segment_idx, text_segment in enumerate(text_segments):
                 # Skip empty segments
                 if not text_segment.strip():
@@ -145,7 +157,7 @@ class Predictor:
                         language=language,
                         max_ref_len=max_ref_len,
                         sound_norm_refs=sound_norm_refs,
-                        enable_text_splitting=enable_text_splitting,
+                        enable_text_splitting=False,  # Disable internal splitting since we handle newlines manually
                         # Advanced quality parameters
                         temperature=temperature,
                         length_penalty=length_penalty,
