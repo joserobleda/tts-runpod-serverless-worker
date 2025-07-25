@@ -2,6 +2,7 @@ import os
 import numpy as np
 # torch
 import torch
+import torch.nn.functional as F
 # xtts
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
@@ -11,6 +12,175 @@ from audio_enhancer import AudioEnhancer
 SAMPLE_RATE = 24000
 
 use_cuda = os.environ.get('WORKER_USE_CUDA', 'True').lower() == 'true'
+
+def apply_crossfade(wave1, wave2, fade_length_samples=1024):
+    """
+    Apply crossfade between two audio segments to prevent clicks and pops.
+    
+    This function overlaps the end of the first segment with the beginning of the second
+    segment, applying fade-out to the first and fade-in to the second. Uses square-root
+    curves for constant power crossfading, maintaining perceived volume.
+    
+    Args:
+        wave1: First audio segment (torch.Tensor)
+        wave2: Second audio segment (torch.Tensor) 
+        fade_length_samples: Length of crossfade in samples (default: 1024 ~= 43ms at 24kHz)
+                           Recommended: 240-4800 samples (10-200ms at 24kHz)
+    
+    Returns:
+        Concatenated audio with smooth crossfade transition
+        
+    Note:
+        - Shorter crossfades (10-50ms) preserve speech clarity but may still have artifacts
+        - Longer crossfades (50-200ms) eliminate artifacts but may cause slight audio blending
+        - Default 50ms provides good balance between artifact removal and speech clarity
+    """
+    if wave1 is None:
+        return wave2
+    if wave2 is None:
+        return wave1
+    
+    # Ensure both waves are 1D
+    wave1 = wave1.squeeze()
+    wave2 = wave2.squeeze()
+    
+    # Validate fade length
+    fade_length_samples = max(0, int(fade_length_samples))
+    if fade_length_samples == 0:
+        return torch.cat([wave1, wave2], dim=0)
+    
+    # Ensure device and dtype consistency
+    if wave1.device != wave2.device:
+        wave2 = wave2.to(wave1.device)
+    if wave1.dtype != wave2.dtype:
+        wave2 = wave2.to(wave1.dtype)
+    
+    # Limit fade length - don't take more than 50% of either segment to preserve content
+    max_fade = min(len(wave1) // 2, len(wave2) // 2)
+    fade_length = min(fade_length_samples, max_fade)
+    
+    if fade_length <= 0:
+        # If no overlap possible, just concatenate
+        return torch.cat([wave1, wave2], dim=0)
+    
+    # Create fade curves with matching device and dtype
+    fade_out = torch.sqrt(torch.linspace(1.0, 0.0, fade_length, device=wave1.device, dtype=wave1.dtype))
+    fade_in = torch.sqrt(torch.linspace(0.0, 1.0, fade_length, device=wave1.device, dtype=wave1.dtype))
+    
+    # Extract the regions to crossfade
+    wave1_fade = wave1[-fade_length:] * fade_out
+    wave2_fade = wave2[:fade_length] * fade_in
+    
+    # Create crossfaded region
+    crossfaded = wave1_fade + wave2_fade
+    
+    # Build result - handle edge cases properly
+    parts = []
+    if len(wave1) > fade_length:
+        parts.append(wave1[:-fade_length])
+    parts.append(crossfaded)
+    if len(wave2) > fade_length:
+        parts.append(wave2[fade_length:])
+    
+    # Concatenate all parts
+    result = torch.cat(parts, dim=0)
+    
+    return result
+
+def add_silence_with_fade(wave, silence, fade_length_samples=512):
+    """
+    Add silence to audio with a short fade to prevent clicks.
+    
+    Args:
+        wave: Audio segment
+        silence: Silence segment to add
+        fade_length_samples: Length of fade in samples (default: 512 ~= 21ms at 24kHz)
+    
+    Returns:
+        Audio with faded silence added
+    """
+    if wave is None:
+        return silence
+    if silence is None:
+        return wave
+    
+    wave = wave.squeeze()
+    silence = silence.squeeze()
+    
+    # Validate fade length
+    fade_length_samples = max(0, int(fade_length_samples))
+    if fade_length_samples == 0:
+        return torch.cat([wave, silence], dim=0)
+    
+    # Ensure device and dtype consistency
+    if wave.device != silence.device:
+        silence = silence.to(wave.device)
+    if wave.dtype != silence.dtype:
+        silence = silence.to(wave.dtype)
+    
+    # Apply short fade-out to the end of the wave to prevent clicks with silence
+    # Don't take more than 25% of the wave to preserve content
+    max_fade = len(wave) // 4
+    fade_length = min(fade_length_samples, max_fade, len(wave))
+    
+    if fade_length > 0:
+        # Fade to 10% not 0% to maintain some presence and avoid complete silence artifacts
+        fade_out = torch.sqrt(torch.linspace(1.0, 0.1, fade_length, device=wave.device, dtype=wave.dtype))
+        wave = wave.clone()  # Don't modify the original
+        wave[-fade_length:] *= fade_out
+    
+    return torch.cat([wave, silence], dim=0)
+
+def _test_crossfade_functions():
+    """Test function to validate crossfade implementation - for development/debugging only."""
+    try:
+        print("Testing crossfade functions...")
+        
+        # Test basic crossfade
+        wave1 = torch.randn(1000) * 0.5
+        wave2 = torch.randn(800) * 0.5
+        result = apply_crossfade(wave1, wave2, 100)
+        assert result.shape[0] > 0, "Crossfade result should not be empty"
+        print(f"✓ Basic crossfade: {wave1.shape} + {wave2.shape} -> {result.shape}")
+        
+        # Test device consistency
+        if use_cuda and torch.cuda.is_available():
+            wave1_cuda = wave1.cuda()
+            wave2_cpu = wave2.cpu()
+            result = apply_crossfade(wave1_cuda, wave2_cpu, 50)
+            assert result.device == wave1_cuda.device, "Result should match first wave's device"
+            print("✓ Device consistency test passed")
+        
+        # Test edge cases
+        tiny_wave = torch.randn(10)
+        normal_wave = torch.randn(1000)
+        result = apply_crossfade(tiny_wave, normal_wave, 100)
+        assert result.shape[0] > 0, "Edge case result should not be empty"
+        print("✓ Edge case test passed")
+        
+        # Test silence fade
+        wave = torch.randn(500) * 0.5
+        silence = torch.zeros(200)
+        result = add_silence_with_fade(wave, silence, 50)
+        assert result.shape[0] == len(wave) + len(silence), "Silence fade should preserve length"
+        print("✓ Silence fade test passed")
+        
+        # Test 0.9 second pause preservation
+        speech_segment = torch.randn(int(2.0 * SAMPLE_RATE)) * 0.5  # 2 seconds of speech
+        pause_09sec = torch.zeros(int(0.9 * SAMPLE_RATE))  # 0.9 seconds silence
+        result = add_silence_with_fade(speech_segment, pause_09sec, int(0.025 * SAMPLE_RATE))  # 25ms fade
+        expected_length = len(speech_segment) + len(pause_09sec)
+        actual_length = len(result)
+        pause_duration_ms = len(pause_09sec) / SAMPLE_RATE * 1000
+        print(f"✓ 0.9s pause test: Expected {expected_length} samples, got {actual_length}, pause={pause_duration_ms:.1f}ms")
+        assert actual_length == expected_length, f"0.9s pause not preserved: {actual_length} != {expected_length}"
+        
+        print("All crossfade tests passed!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Crossfade test failed: {e}")
+        return False
 
 class Predictor:
     def __init__(self, model_dir: str):
@@ -61,6 +231,12 @@ class Predictor:
             print(f"Error loading audio enhancer: {e}")
             print("Continuing without audio enhancer...")
             self.audio_enhancer = None
+        
+        # Test crossfade functions to ensure they work correctly
+        if not _test_crossfade_functions():
+            print("⚠️  Crossfade tests failed - audio may have artifacts")
+        else:
+            print("✅ Crossfade system ready")
 
     @torch.inference_mode()
     def predict(
@@ -81,7 +257,10 @@ class Predictor:
             num_gpt_outputs: int = 1,
             gpt_cond_chunk_len: int = 4,
             sound_norm_refs: bool = False,
-            enable_text_splitting: bool = True
+            enable_text_splitting: bool = True,
+            # Crossfade parameters to prevent clicks/pops
+            crossfade_length_ms: float = 50.0,  # Crossfade length in milliseconds
+            silence_fade_length_ms: float = 25.0  # Fade length when adding silence
     ):
         silence = torch.zeros(1, int(0.9 * SAMPLE_RATE))
         # Create 0.4 second silence for newline pauses
@@ -89,6 +268,16 @@ class Predictor:
         if use_cuda:
             silence = silence.cuda()
             newline_silence = newline_silence.cuda()
+        
+        # Validate and convert crossfade lengths from milliseconds to samples
+        crossfade_length_ms = max(0.0, min(500.0, float(crossfade_length_ms)))  # Clamp 0-500ms
+        silence_fade_length_ms = max(0.0, min(200.0, float(silence_fade_length_ms)))  # Clamp 0-200ms
+        
+        crossfade_samples = int(crossfade_length_ms * SAMPLE_RATE / 1000.0)
+        silence_fade_samples = int(silence_fade_length_ms * SAMPLE_RATE / 1000.0)
+        
+        print(f"Crossfade settings: {crossfade_length_ms}ms ({crossfade_samples} samples), "
+              f"Silence fade: {silence_fade_length_ms}ms ({silence_fade_samples} samples)")
         
         wave, sr = None, None
         
@@ -140,9 +329,8 @@ class Predictor:
                             wave = newline_silence.clone()
                             sr = SAMPLE_RATE
                         else:
-                            wave = wave.squeeze()
-                            newline_pause = newline_silence.clone().squeeze()
-                            wave = torch.cat([wave, newline_pause], dim=0)
+                            newline_pause = newline_silence.clone()
+                            wave = add_silence_with_fade(wave, newline_pause, silence_fade_samples)
                     continue
                 
                 print(f"Synthesizing: '{text_segment}' with speaker: {speaker_id}")
@@ -189,13 +377,13 @@ class Predictor:
                     else:
                         wave = wave.squeeze()
                         _wave = _wave.squeeze()
-                        wave = torch.cat([wave, _wave], dim=0)
+                        wave = apply_crossfade(wave, _wave, crossfade_samples)
                     
                     # Add 0.4 sec pause after each text segment (except the last one)
                     if segment_idx < len(text_segments) - 1:
                         wave = wave.squeeze()
                         newline_pause = newline_silence.clone().squeeze()
-                        wave = torch.cat([wave, newline_pause], dim=0)
+                        wave = add_silence_with_fade(wave, newline_pause, silence_fade_samples)
                         
                 except Exception as e:
                     print(f"Error synthesizing text '{text_segment}': {e}")
@@ -205,7 +393,7 @@ class Predictor:
             if line_idx < len(text) - 1:
                 wave = wave.squeeze()
                 silence_to_add = silence.clone().squeeze()
-                wave = torch.cat([wave, silence_to_add], dim=0)
+                wave = add_silence_with_fade(wave, silence_to_add, silence_fade_samples)
         
         # Enhance audio if requested and enhancer is available
         if enhance_audio and wave is not None and self.audio_enhancer is not None:

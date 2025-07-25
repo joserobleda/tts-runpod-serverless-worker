@@ -75,5 +75,21 @@ INPUT_SCHEMA = {
         "type": bool,
         "required": False,
         "default": True
+    },
+    "crossfade_length_ms": {
+        "type": float,
+        "required": False,
+        "default": 50.0,
+        "min": 0.0,
+        "max": 500.0,
+        "description": "Crossfade length in milliseconds between audio segments to prevent clicks/pops. Range: 0-500ms. Recommended: 10-200ms for speech."
+    },
+    "silence_fade_length_ms": {
+        "type": float,
+        "required": False,
+        "default": 25.0,
+        "min": 0.0,
+        "max": 200.0,
+        "description": "Fade length in milliseconds when adding silence to prevent clicks/pops. Range: 0-200ms. Recommended: 5-100ms for speech."
     }
 }

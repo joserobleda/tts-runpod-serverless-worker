@@ -135,7 +135,10 @@ def run(job):
             num_gpt_outputs=validated_input.get("num_gpt_outputs", 1),     # Single output
             gpt_cond_chunk_len=validated_input.get("gpt_cond_chunk_len", 4), # Stable chunking
             sound_norm_refs=validated_input.get("sound_norm_refs", False), # No normalization
-            enable_text_splitting=validated_input.get("enable_text_splitting", True)  # Better long text
+            enable_text_splitting=validated_input.get("enable_text_splitting", True),  # Better long text
+            # Crossfade parameters to prevent clicks/pops between segments
+            crossfade_length_ms=validated_input.get("crossfade_length_ms", 50.0),      # 50ms crossfade
+            silence_fade_length_ms=validated_input.get("silence_fade_length_ms", 25.0) # 25ms fade with silence
         )
 
         if wave is None:
