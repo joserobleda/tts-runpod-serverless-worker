@@ -311,13 +311,19 @@ class Predictor:
             cleaned_segments = []
             for segment in text_segments:
                 segment = segment.strip()
-                if segment:
-                    # Add punctuation if missing to help XTTS with sentence boundaries
-                    # Using semicolon + space for natural punctuation spacing
-                    if not segment.endswith(('.', '!', '?', ',', ';', ':')):
-                        segment += ' ; '
-                    cleaned_segments.append(segment)
-            
+                if not segment:
+                    continue
+                # Ensure proper terminal punctuation to help prosody
+                if not segment.endswith(('.', '!', '?', ',', ';', ':')):
+                    segment = segment + ' ; '
+                # For Spanish, ensure inverted punctuation for questions/exclamations
+                if language and str(language).lower().startswith('es'):
+                    if segment.endswith('?') and not segment.lstrip().startswith('¿'):
+                        segment = '¿' + segment
+                    if segment.endswith('!') and not segment.lstrip().startswith('¡'):
+                        segment = '¡' + segment
+                cleaned_segments.append(segment)
+
             text_segments = cleaned_segments
             
             for segment_idx, text_segment in enumerate(text_segments):
@@ -336,6 +342,16 @@ class Predictor:
                 print(f"Synthesizing: '{text_segment}' with speaker: {speaker_id}")
                 
                 try:
+                    # Adjust prosody parameters for questions to encourage expressive intonation
+                    is_question = text_segment.strip().endswith('?')
+                    segment_temperature = temperature
+                    segment_top_p = top_p
+                    segment_speed = speed
+                    if is_question:
+                        segment_temperature = min(1.0, temperature + 0.1)
+                        segment_top_p = min(0.98, top_p + 0.05)
+                        segment_speed = min(1.2, speed * 1.05)
+
                     # Synthesize audio for this segment with advanced quality parameters
                     outputs = self.model.synthesize(
                         text_segment,
@@ -348,12 +364,12 @@ class Predictor:
                         sound_norm_refs=sound_norm_refs,
                         enable_text_splitting=False,  # Disable internal splitting since we handle newlines manually
                         # Advanced quality parameters
-                        temperature=temperature,
+                        temperature=segment_temperature,
                         length_penalty=length_penalty,
                         repetition_penalty=repetition_penalty,
                         top_k=top_k,
-                        top_p=top_p,
-                        speed=speed
+                        top_p=segment_top_p,
+                        speed=segment_speed
                     )
                     
                     _wave, _sr = outputs['wav'], SAMPLE_RATE
