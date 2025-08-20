@@ -13,6 +13,101 @@ SAMPLE_RATE = 24000
 
 use_cuda = os.environ.get('WORKER_USE_CUDA', 'True').lower() == 'true'
 
+
+def _apply_overrides(
+    current: dict,
+    overrides: dict | None,
+):
+    """Apply absolute or relative overrides to current params in place."""
+    if not overrides:
+        return current
+
+    # Absolute
+    if 'temperature' in overrides:
+        current['temperature'] = float(overrides['temperature'])
+    if 'top_p' in overrides:
+        current['top_p'] = float(overrides['top_p'])
+    if 'speed' in overrides:
+        current['speed'] = float(overrides['speed'])
+    if 'top_k' in overrides:
+        current['top_k'] = int(overrides['top_k'])
+    if 'length_penalty' in overrides:
+        current['length_penalty'] = float(overrides['length_penalty'])
+    if 'repetition_penalty' in overrides:
+        current['repetition_penalty'] = float(overrides['repetition_penalty'])
+    if 'gpt_cond_len' in overrides:
+        current['gpt_cond_len'] = int(overrides['gpt_cond_len'])
+    if 'gpt_cond_chunk_len' in overrides:
+        current['gpt_cond_chunk_len'] = int(overrides['gpt_cond_chunk_len'])
+    if 'sound_norm_refs' in overrides:
+        current['sound_norm_refs'] = bool(overrides['sound_norm_refs'])
+    if 'enable_text_splitting' in overrides:
+        current['enable_text_splitting'] = bool(overrides['enable_text_splitting'])
+
+    # Relative
+    if 'temperature_delta' in overrides and 'temperature' not in overrides:
+        current['temperature'] = float(current['temperature']) + float(overrides['temperature_delta'])
+    if 'top_p_delta' in overrides and 'top_p' not in overrides:
+        current['top_p'] = float(current['top_p']) + float(overrides['top_p_delta'])
+    if 'speed_multiplier' in overrides and 'speed' not in overrides:
+        current['speed'] = float(current['speed']) * float(overrides['speed_multiplier'])
+
+    return current
+
+
+def _clamp_params(p: dict):
+    """Clamp parameter dict to safe ranges, mutate and return it."""
+    p['temperature'] = max(0.0, min(1.0, float(p['temperature'])))
+    p['top_p'] = max(0.0, min(0.98, float(p['top_p'])))
+    p['top_k'] = max(1, int(p['top_k']))
+    p['speed'] = max(0.5, min(2.0, float(p['speed'])))
+    return p
+
+
+def _build_segment_params(text_segment: str, global_options: dict | None, segment_options: dict | None) -> dict:
+    """Compose final parameter set for a segment from defaults, punctuation defaults, global and segment overrides."""
+    _go = global_options or {}
+
+    # 1) Defaults
+    params = {
+        'temperature': 0.7,
+        'top_p': 0.8,
+        'top_k': 50,
+        'speed': 1.0,
+        'length_penalty': 1.0,
+        'repetition_penalty': 5.0,
+        'gpt_cond_len': 30,
+        'gpt_cond_chunk_len': 4,
+        'max_ref_len': 60,
+        'sound_norm_refs': False,
+        'enable_text_splitting': False
+    }
+
+    # 2) Punctuation-based defaults (segment overrides > global)
+    stripped = text_segment.strip()
+    q_temp_delta = float((segment_options.get('question_temperature_delta') if segment_options and 'question_temperature_delta' in segment_options else _go.get('question_temperature_delta', 0.18)))
+    q_top_p_delta = float((segment_options.get('question_top_p_delta') if segment_options and 'question_top_p_delta' in segment_options else _go.get('question_top_p_delta', 0.10)))
+    q_speed_mul = float((segment_options.get('question_speed_multiplier') if segment_options and 'question_speed_multiplier' in segment_options else _go.get('question_speed_multiplier', 1.07)))
+    e_temp_delta = float((segment_options.get('exclamation_temperature_delta') if segment_options and 'exclamation_temperature_delta' in segment_options else _go.get('exclamation_temperature_delta', 0.22)))
+    e_top_p_delta = float((segment_options.get('exclamation_top_p_delta') if segment_options and 'exclamation_top_p_delta' in segment_options else _go.get('exclamation_top_p_delta', 0.12)))
+    e_speed_mul = float((segment_options.get('exclamation_speed_multiplier') if segment_options and 'exclamation_speed_multiplier' in segment_options else _go.get('exclamation_speed_multiplier', 1.05)))
+
+    if stripped.endswith('?'):
+        params['temperature'] = min(1.0, params['temperature'] + max(0.0, q_temp_delta))
+        params['top_p'] = min(0.98, params['top_p'] + max(0.0, q_top_p_delta))
+        params['speed'] = min(1.2, params['speed'] * max(0.5, min(2.0, q_speed_mul)))
+    elif stripped.endswith('!'):
+        params['temperature'] = min(1.0, params['temperature'] + max(0.0, e_temp_delta))
+        params['top_p'] = min(0.98, params['top_p'] + max(0.0, e_top_p_delta))
+        params['speed'] = min(1.2, params['speed'] * max(0.5, min(2.0, e_speed_mul)))
+
+    # 3) Global overrides
+    params = _apply_overrides(params, _go)
+    # 4) Segment overrides (take precedence)
+    params = _apply_overrides(params, segment_options)
+    # 5) Clamp
+    return _clamp_params(params)
+
 def apply_crossfade(wave1, wave2, fade_length_samples=1024):
     """
     Apply crossfade between two audio segments to prevent clicks and pops.
@@ -243,24 +338,8 @@ class Predictor:
             self,
             text: list,
             speaker_wav: dict,
-            gpt_cond_len: int,
-            max_ref_len: int,
             language: str,
-            speed: float,
-            enhance_audio: bool,
-            # Advanced quality parameters
-            temperature: float = 0.7,
-            length_penalty: float = 1.0,
-            repetition_penalty: float = 5.0,
-            top_k: int = 50,
-            top_p: float = 0.8,
-            num_gpt_outputs: int = 1,
-            gpt_cond_chunk_len: int = 4,
-            sound_norm_refs: bool = False,
-            enable_text_splitting: bool = True,
-            # Crossfade parameters to prevent clicks/pops
-            crossfade_length_ms: float = 50.0,  # Crossfade length in milliseconds
-            silence_fade_length_ms: float = 25.0  # Fade length when adding silence
+            global_options: dict = None
     ):
         silence = torch.zeros(1, int(0.9 * SAMPLE_RATE))
         # Create 0.4 second silence for newline pauses
@@ -269,9 +348,11 @@ class Predictor:
             silence = silence.cuda()
             newline_silence = newline_silence.cuda()
         
-        # Validate and convert crossfade lengths from milliseconds to samples
-        crossfade_length_ms = max(0.0, min(500.0, float(crossfade_length_ms)))  # Clamp 0-500ms
-        silence_fade_length_ms = max(0.0, min(200.0, float(silence_fade_length_ms)))  # Clamp 0-200ms
+        # Read processing options from global options with safe defaults
+        _go = global_options or {}
+        crossfade_length_ms = max(0.0, min(500.0, float(_go.get('crossfade_length_ms', 50.0))))
+        silence_fade_length_ms = max(0.0, min(200.0, float(_go.get('silence_fade_length_ms', 25.0))))
+        enhance_audio_flag = bool(_go.get('enhance_audio', True))
         
         crossfade_samples = int(crossfade_length_ms * SAMPLE_RATE / 1000.0)
         silence_fade_samples = int(silence_fade_length_ms * SAMPLE_RATE / 1000.0)
@@ -284,13 +365,17 @@ class Predictor:
         # Process each text segment
         for line_idx, line in enumerate(text):
             # Handle different input formats
+            segment_options = {}
             if isinstance(line, (list, tuple)) and len(line) >= 2:
-                # Format: [speaker_id, text_content]
+                # Format: [speaker_id, text_content, {options}?]
                 speaker_id, text_content = line[0], line[1]
+                if len(line) >= 3 and isinstance(line[2], dict):
+                    segment_options = line[2]
             elif isinstance(line, dict):
-                # Format: {"speaker": "id", "text": "content"}
+                # Format: {"speaker": "id", "text": "content", "options": {...}?}
                 speaker_id = line.get("speaker", list(speaker_wav.keys())[0])
                 text_content = line.get("text", "")
+                segment_options = line.get("options", {}) if isinstance(line.get("options", {}), dict) else {}
             elif isinstance(line, str):
                 # Format: plain text string, use first available speaker
                 speaker_id = list(speaker_wav.keys())[0]
@@ -316,12 +401,6 @@ class Predictor:
                 # Ensure proper terminal punctuation to help prosody
                 if not segment.endswith(('.', '!', '?', ',', ';', ':')):
                     segment = segment + ' ; '
-                # For Spanish, ensure inverted punctuation for questions/exclamations
-                if language and str(language).lower().startswith('es'):
-                    if segment.endswith('?') and not segment.lstrip().startswith('¿'):
-                        segment = '¿' + segment
-                    if segment.endswith('!') and not segment.lstrip().startswith('¡'):
-                        segment = '¡' + segment
                 cleaned_segments.append(segment)
 
             text_segments = cleaned_segments
@@ -342,34 +421,26 @@ class Predictor:
                 print(f"Synthesizing: '{text_segment}' with speaker: {speaker_id}")
                 
                 try:
-                    # Adjust prosody parameters for questions to encourage expressive intonation
-                    is_question = text_segment.strip().endswith('?')
-                    segment_temperature = temperature
-                    segment_top_p = top_p
-                    segment_speed = speed
-                    if is_question:
-                        segment_temperature = min(1.0, temperature + 0.1)
-                        segment_top_p = min(0.98, top_p + 0.05)
-                        segment_speed = min(1.2, speed * 1.05)
+                    params = _build_segment_params(text_segment, global_options, segment_options)
 
                     # Synthesize audio for this segment with advanced quality parameters
                     outputs = self.model.synthesize(
                         text_segment,
                         self.config,
                         speaker_wav=voice,
-                        gpt_cond_len=gpt_cond_len,
-                        gpt_cond_chunk_len=gpt_cond_chunk_len,
+                        gpt_cond_len=params['gpt_cond_len'],
+                        gpt_cond_chunk_len=params['gpt_cond_chunk_len'],
                         language=language,
-                        max_ref_len=max_ref_len,
-                        sound_norm_refs=sound_norm_refs,
-                        enable_text_splitting=False,  # Disable internal splitting since we handle newlines manually
+                        max_ref_len=params['max_ref_len'],
+                        sound_norm_refs=params['sound_norm_refs'],
+                        enable_text_splitting=params['enable_text_splitting'],
                         # Advanced quality parameters
-                        temperature=segment_temperature,
-                        length_penalty=length_penalty,
-                        repetition_penalty=repetition_penalty,
-                        top_k=top_k,
-                        top_p=segment_top_p,
-                        speed=segment_speed
+                        temperature=params['temperature'],
+                        length_penalty=params['length_penalty'],
+                        repetition_penalty=params['repetition_penalty'],
+                        top_k=params['top_k'],
+                        top_p=params['top_p'],
+                        speed=params['speed']
                     )
                     
                     _wave, _sr = outputs['wav'], SAMPLE_RATE
@@ -412,7 +483,7 @@ class Predictor:
                 wave = add_silence_with_fade(wave, silence_to_add, silence_fade_samples)
         
         # Enhance audio if requested and enhancer is available
-        if enhance_audio and wave is not None and self.audio_enhancer is not None:
+        if enhance_audio_flag and wave is not None and self.audio_enhancer is not None:
             try:
                 print(f"Enhancing audio: input shape={wave.shape}, sr={sr}, type={type(wave)}")
                 
@@ -446,7 +517,7 @@ class Predictor:
                 import traceback
                 traceback.print_exc()
                 # Continue with original audio if enhancement fails
-        elif enhance_audio and self.audio_enhancer is None:
+        elif enhance_audio_flag and self.audio_enhancer is None:
             print("Audio enhancement requested but enhancer not available")
         
         # Convert to numpy for return

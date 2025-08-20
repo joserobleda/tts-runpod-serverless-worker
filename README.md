@@ -75,26 +75,40 @@ docker build .
 ## Continuous Deployment
 This worker follows a modified version of the [worker template](https://github.com/runpod-workers/worker-template) where the Docker build workflow contains additional SD models to be built and pushed.
 
-## API
+## API (simplified)
 
+Request body:
 ```json
 {
   "input": {
-      "language": <language:str>,
-      "voice": {
-          "speaker_0": "url"
-          "speaker_1": "url"
-          },
-      "text": [
-          ["speaker_0", "text"],
-          ["speaker_1", "text"],
-          ...
-          ["speaker_1", "text"],
-      ],
-      "gpt_cond_len": <gpt_cond_len:int>,
-      "max_ref_len": <max_ref_len:int>,
-      "speed": <speed:float>
-      "enhance_audio": <enhance_audio:bool>
+    "language": "es",
+    "voice": {
+      "speaker_0": "https://..."
+    },
+    "text": [
+      ["speaker_0", "¿Cómo estás?"],
+      ["speaker_0", "¡Genial!", { "temperature": 0.95 }],
+      { "speaker": "speaker_0", "text": "Seguimos.", "options": { "speed_multiplier": 0.95 } }
+    ],
+    "options": {
+      "temperature": 0.75,
+      "top_p": 0.9,
+      "speed": 1.02,
+      "crossfade_length_ms": 50.0,
+      "silence_fade_length_ms": 25.0,
+      "enhance_audio": true,
+      "question_temperature_delta": 0.18,
+      "question_top_p_delta": 0.10,
+      "question_speed_multiplier": 1.07,
+      "exclamation_temperature_delta": 0.22,
+      "exclamation_top_p_delta": 0.12,
+      "exclamation_speed_multiplier": 1.05
+    }
   }
 }
 ```
+
+Notes:
+- Per-segment `options` override global `options`; global overrides defaults.
+- If a segment defines `temperature`/`top_p`/`speed` (o sus variantes relativas), prevalece sobre el ajuste automático por “?”/“!”.
+- Si un segmento no define nada, se usan defaults + globales + ajuste “?”/“!”.
