@@ -85,12 +85,14 @@ def _build_segment_params(text_segment: str, global_options: dict | None, segmen
 
     # 2) Punctuation-based defaults (segment overrides > global)
     stripped = text_segment.strip()
-    q_temp_delta = float((segment_options.get('question_temperature_delta') if segment_options and 'question_temperature_delta' in segment_options else _go.get('question_temperature_delta', 0.18)))
-    q_top_p_delta = float((segment_options.get('question_top_p_delta') if segment_options and 'question_top_p_delta' in segment_options else _go.get('question_top_p_delta', 0.10)))
-    q_speed_mul = float((segment_options.get('question_speed_multiplier') if segment_options and 'question_speed_multiplier' in segment_options else _go.get('question_speed_multiplier', 1.07)))
-    e_temp_delta = float((segment_options.get('exclamation_temperature_delta') if segment_options and 'exclamation_temperature_delta' in segment_options else _go.get('exclamation_temperature_delta', 0.22)))
-    e_top_p_delta = float((segment_options.get('exclamation_top_p_delta') if segment_options and 'exclamation_top_p_delta' in segment_options else _go.get('exclamation_top_p_delta', 0.12)))
-    e_speed_mul = float((segment_options.get('exclamation_speed_multiplier') if segment_options and 'exclamation_speed_multiplier' in segment_options else _go.get('exclamation_speed_multiplier', 1.05)))
+    # Defaults for questions: temperature +0.3, top_p +0.4, speed -0.1 (≈ multiplier 0.9)
+    q_temp_delta = float((segment_options.get('question_temperature_delta') if segment_options and 'question_temperature_delta' in segment_options else _go.get('question_temperature_delta', 0.30)))
+    q_top_p_delta = float((segment_options.get('question_top_p_delta') if segment_options and 'question_top_p_delta' in segment_options else _go.get('question_top_p_delta', 0.40)))
+    q_speed_mul = float((segment_options.get('question_speed_multiplier') if segment_options and 'question_speed_multiplier' in segment_options else _go.get('question_speed_multiplier', 0.90)))
+    # Defaults for exclamations: temperature +0.3, top_p +0.4, speed -0.1 (≈ multiplier 0.9)
+    e_temp_delta = float((segment_options.get('exclamation_temperature_delta') if segment_options and 'exclamation_temperature_delta' in segment_options else _go.get('exclamation_temperature_delta', 0.30)))
+    e_top_p_delta = float((segment_options.get('exclamation_top_p_delta') if segment_options and 'exclamation_top_p_delta' in segment_options else _go.get('exclamation_top_p_delta', 0.40)))
+    e_speed_mul = float((segment_options.get('exclamation_speed_multiplier') if segment_options and 'exclamation_speed_multiplier' in segment_options else _go.get('exclamation_speed_multiplier', 1.00)))
 
     if stripped.endswith('?'):
         params['temperature'] = min(1.0, params['temperature'] + max(0.0, q_temp_delta))

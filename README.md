@@ -112,3 +112,6 @@ Notes:
 - Per-segment `options` override global `options`; global overrides defaults.
 - If a segment defines `temperature`/`top_p`/`speed` (o sus variantes relativas), prevalece sobre el ajuste automático por “?”/“!”.
 - Si un segmento no define nada, se usan defaults + globales + ajuste “?”/“!”.
+ - Defaults de ajuste automático:
+   - Pregunta: `temperature +0.30`, `top_p +0.40`, `speed ×0.90` (equiv. −0.1)
+   - Exclamación: `temperature +0.30`, `top_p +0.40`, `speed ×1.00` (equiv. 0.0)
