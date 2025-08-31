@@ -80,7 +80,7 @@ def _build_segment_params(text_segment: str, global_options: dict | None, segmen
         'gpt_cond_chunk_len': 4,
         'max_ref_len': 60,
         'sound_norm_refs': False,
-        'enable_text_splitting': False
+        'enable_text_splitting': True
     }
 
     # 2) Punctuation-based defaults (segment overrides > global)
