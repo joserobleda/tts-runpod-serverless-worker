@@ -346,7 +346,7 @@ class Predictor:
                         language=language,
                         max_ref_len=max_ref_len,
                         sound_norm_refs=sound_norm_refs,
-                        enable_text_splitting=False,  # Disable internal splitting since we handle newlines manually
+                        enable_text_splitting=enable_text_splitting,  # Disable internal splitting since we handle newlines manually
                         # Advanced quality parameters
                         temperature=temperature,
                         length_penalty=length_penalty,
